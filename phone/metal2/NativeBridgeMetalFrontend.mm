@@ -908,9 +908,21 @@ static bool descriptorFramebufferOnly(MTLTextureDescriptor *d) {
  if(!d || ![d respondsToSelector:sel])return false;
  return ((BOOL(*)(id,SEL))objc_msgSend)(d,sel);
 }
+// MTLResourceOptions the runtime knows: CPU cache mode (bits 0-3), storage mode (4-7), hazard tracking (8-9). Metal's private bits
+// above them (mediaserverd's MPS/Espresso textures ask 0x80020: Private + bit 19) made every such texture refused ("UndefinedValue",
+// then MPSAutoCache read through the nil texture): dropped, logged once per distinct set.
+static uint64_t knownResourceOptions(uint64_t options) {
+ const uint64_t known=0x3ff,extra=options&~known;
+ if(extra) {
+  static std::mutex lock;static std::vector<uint64_t> seen;
+  std::lock_guard<std::mutex> guard(lock);
+  if(std::find(seen.begin(),seen.end(),extra)==seen.end()){seen.push_back(extra);sm2_logs([NSString stringWithFormat:@"native-metal: resource options 0x%llx: private bits 0x%llx dropped",options,extra].UTF8String);}
+ }
+ return options&known;
+}
 static bool textureDescriptor(MTLTextureDescriptor *d,NmbTextureDescriptor *out) {
  if(!d)return false;
- *out={(uint64_t)d.textureType,sweetFormat((uint64_t)d.pixelFormat),d.width,d.height,d.depth,d.mipmapLevelCount,d.sampleCount,d.arrayLength,(uint64_t)d.usage,(uint64_t)d.resourceOptions};
+ *out={(uint64_t)d.textureType,sweetFormat((uint64_t)d.pixelFormat),d.width,d.height,d.depth,d.mipmapLevelCount,d.sampleCount,d.arrayLength,(uint64_t)d.usage,knownResourceOptions((uint64_t)d.resourceOptions)};
  return true;
 }
 @implementation NBTexture
@@ -1233,6 +1245,10 @@ static std::string quartzCoreCallers();
  NBFunction *function=[NBFunction new];function.handle=handle;function.name=name;function.functionType=(MTLFunctionType)nmb_function_type(handle);
  function.constantsText=text;function.prewarmKey=prewarmFunctionKey(self.prewarmDigest,name,constants.data(),constants.size(),true);
  if(error)*error=nil;return (id<MTLFunction>)function;
+}
+// Metal SPI (MPS asks it): the pipeline library is a cache of made pipelines; without one the function is made as usual.
+- (id<MTLFunction>)newFunctionWithName:(NSString *)name constantValues:(MTLFunctionConstantValues *)values pipelineLibrary:(id)library error:(NSError **)error {
+ (void)library;return [self newFunctionWithName:name constantValues:values error:error];
 }
 - (void)newFunctionWithName:(NSString *)name constantValues:(MTLFunctionConstantValues *)values completionHandler:(void (^)(id<MTLFunction>,NSError *))handler {
  NSError *error=nil;id<MTLFunction> function=[self newFunctionWithName:name constantValues:values error:&error];
