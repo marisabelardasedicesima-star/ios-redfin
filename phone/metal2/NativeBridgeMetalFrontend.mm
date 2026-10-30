@@ -1361,6 +1361,7 @@ static void notified(void *context,uint64_t value) {
 @property(nonatomic) uint32_t commitIndex;
 @property(nonatomic) BOOL rotatedFrame;   // rotfb4: a pass of it renders a rotated (landscape framebuffer) texture
 @property(nonatomic,strong) NSMutableArray *scheduledHandlers,*completedHandlers;
+@property(nonatomic,strong) NSMutableDictionary *userDictionary;   // _MTLCommandBuffer's: mediaserverd's capture graph keeps values in it
 @property(nonatomic,strong) NSMutableSet *surfaces;          // every surface texture it uses (cleaned at commit if the CPU wrote it)
 @property(nonatomic,strong) NSMutableSet *writtenSurfaces;   // those the GPU may write (flushed at completion)
 // Runtime handles retain GPU storage, but only the Objective-C owner retains
@@ -2561,6 +2562,7 @@ static void noteDeviceLost(const char *why) {
 }
 - (void)dealloc {nmb_command_buffer_release(_handle);}
 - (id<MTLCommandQueue>)commandQueue {return (id<MTLCommandQueue>)_queue;}
+- (NSMutableDictionary *)userDictionary {if(!_userDictionary)_userDictionary=[NSMutableDictionary dictionary];return _userDictionary;}
 - (BOOL)retainedReferences {return YES;}
 // Protected content is not supported (the runtime's AppleOnlyCall::SetProtectionOptions takes Metal's default only): any other option fails
 // the command buffer.
