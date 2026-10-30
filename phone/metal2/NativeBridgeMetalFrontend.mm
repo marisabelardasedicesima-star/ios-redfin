@@ -749,13 +749,27 @@ static const char *declaredTypes(Class cls,SEL selector) {
  }
  return nullptr;
 }
+// SWEET_UNKNOWN_SEL=zero (opt-in, e.g. for mediaserverd whose capture graph calls Metal SPI one at a time: userDictionary,
+// getGPUPriority, ...): a selector no protocol declares either is answered 0 with a guessed signature (a 64-bit integer result, one
+// object per argument: right for integer, BOOL, pointer and object results, not for float or struct ones) and logged once, so one run
+// lists every missing method instead of raising at the first.
+static bool unknownSelZero() {
+ static int on=-1;
+ if(on<0){const char *e=getenv("SWEET_UNKNOWN_SEL");on=e && !strcmp(e,"zero");}
+ return on>0;
+}
 - (NSMethodSignature *)methodSignatureForSelector:(SEL)selector {
  if(NSMethodSignature *own=[super methodSignatureForSelector:selector])return own;
- const char *types=declaredTypes(object_getClass(self),selector);
- return types?[NSMethodSignature signatureWithObjCTypes:types]:nil;
+ if(const char *types=declaredTypes(object_getClass(self),selector))return [NSMethodSignature signatureWithObjCTypes:types];
+ if(!unknownSelZero())return nil;
+ std::string guessed="Q@:";
+ for(const char *c=sel_getName(selector);*c;c++)if(*c==':')guessed+='@';
+ return [NSMethodSignature signatureWithObjCTypes:guessed.c_str()];
 }
 - (void)forwardInvocation:(NSInvocation *)invocation {
- if(gMissing)gMissing(class_getName(object_getClass(self)),[NSString stringWithFormat:@"%s (answered 0: declared by a Metal protocol)",sel_getName(invocation.selector)].UTF8String);
+ const bool declared=declaredTypes(object_getClass(self),invocation.selector)!=nullptr;
+ if(gMissing)gMissing(class_getName(object_getClass(self)),[NSString stringWithFormat:@"%s (answered 0: %s)",sel_getName(invocation.selector),
+  declared?"declared by a Metal protocol":"SWEET_UNKNOWN_SEL=zero, signature guessed"].UTF8String);
  const NSUInteger length=invocation.methodSignature.methodReturnLength;
  if(length){std::vector<uint8_t> zero(length,0);[invocation setReturnValue:zero.data()];}
 }
@@ -1335,6 +1349,7 @@ static void notified(void *context,uint64_t value) {
 @interface NBQueue : NBObject
 @property(nonatomic) NmbQueue *handle;
 @property(atomic,strong) dispatch_queue_t completionQueue;   // SPI: where command buffers' handlers run (nil: the runtime's thread)
+@property(atomic) NSUInteger gpuPriority,backgroundGPUPriority;   // SPI: as last set (one hardware queue: not applied)
 @end
 @interface NBCommandBuffer : NBObject {
 @public
@@ -3025,8 +3040,11 @@ static void nilencInstall() {
 - (void)setSubmissionQueue:(dispatch_queue_t)queue {(void)queue;}   // submission happens on the caller's thread here
 // setCompletionQueue: is the property's setter.
 // GPU priorities are not applied (one hardware queue): reported as not applied.
-- (BOOL)setGPUPriority:(NSUInteger)priority {(void)priority;return NO;}
-- (BOOL)setBackgroundGPUPriority:(NSUInteger)priority {(void)priority;return NO;}
+- (BOOL)setGPUPriority:(NSUInteger)priority {_gpuPriority=priority;return NO;}
+- (BOOL)setBackgroundGPUPriority:(NSUInteger)priority {_backgroundGPUPriority=priority;return NO;}
+// mediaserverd's capture graph reads them back (it aborted on the unrecognized getter): what was asked for, though not applied
+- (NSUInteger)getGPUPriority {return _gpuPriority;}
+- (NSUInteger)getBackgroundGPUPriority {return _backgroundGPUPriority;}
 - (id<MTLCommandBuffer>)commandBufferWithDescriptor:(MTLCommandBufferDescriptor *)d {(void)d;return [self commandBuffer];}
 @end
 
