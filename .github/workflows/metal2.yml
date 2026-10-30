@@ -20,7 +20,7 @@ env:
 
 jobs:
   build:
-    runs-on: macos-13
+    runs-on: [self-hosted, ios-ci]
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
