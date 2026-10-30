@@ -32,7 +32,12 @@ jobs:
           printf '#!/bin/sh\nexec %s -arch arm64 -isysroot %s -miphoneos-version-min=16.0 "$@"\n' \
             "$(xcrun -f clang)" "$SDK" > work/userland/bin/ios-cc
           chmod +x work/userland/bin/ios-cc
-          brew install meson ninja bison flex glslang llvm >/dev/null
+          # self-hosted macOS 14: Homebrew has no bottles there (Tier 3), so nothing is built or upgraded here;
+          # only what is missing is installed. llvm-as may be a prebuilt LLVM linked at $(brew --prefix)/opt/llvm.
+          export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_UPGRADE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
+          for f in meson ninja bison flex glslang; do brew list --formula "$f" >/dev/null 2>&1 || brew install "$f" >/dev/null; done
+          [ -x "$(brew --prefix llvm)/bin/llvm-as" ] || brew install llvm >/dev/null
+          "$(brew --prefix llvm)/bin/llvm-as" --version | head -2
           python3 -m venv work/turnip/venv
           work/turnip/venv/bin/pip install -q meson mako pyyaml packaging
           rustup toolchain install 1.98.0 --profile minimal --target aarch64-apple-ios
