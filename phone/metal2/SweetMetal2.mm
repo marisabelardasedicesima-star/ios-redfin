@@ -182,8 +182,15 @@ static bool listed(void)
 		if (!strcmp(getprogname(), "backboardd"))
 			setenv("SWEET_TIMELINE", "1", 0);
 		setenv("SWEET_SHADOW_REPACK", "0", 0);
-		/* debugging: KEY=VALUE lines of /var/local/mtl2-env into this process's environment */
-		if (FILE *ef = fopen("/var/local/mtl2-env", "r")) {
+		/* debugging: KEY=VALUE lines of /var/local/mtl2-env, then of /var/local/mtl2-env.<process name> (that one's win),
+		 * into this process's environment */
+		char envfiles[2][256];
+		snprintf(envfiles[0], sizeof(envfiles[0]), "/var/local/mtl2-env");
+		snprintf(envfiles[1], sizeof(envfiles[1]), "/var/local/mtl2-env.%s", getprogname());
+		for (int f = 0; f < 2; f++) {
+			FILE *ef = fopen(envfiles[f], "r");
+			if (!ef)
+				continue;
 			char line[256];
 			while (fgets(line, sizeof(line), ef)) {
 				line[strcspn(line, "\r\n")] = 0;
@@ -191,7 +198,7 @@ static bool listed(void)
 				if (line[0] != '#' && eq) {
 					*eq = 0;
 					setenv(line, eq + 1, 1);
-					sm2_log("env %s=%s", line, eq + 1);
+					sm2_log("env %s=%s (%s)", line, eq + 1, envfiles[f]);
 				}
 			}
 			fclose(ef);
